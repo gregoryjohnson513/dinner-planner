@@ -197,41 +197,33 @@ function renderChip() {
 
 // ---------- week tab ----------
 
-function renderWeek() {
-  const wk = viewWeek;
-  const today = todayStr();
-  const thisWeek = E.weekKeyFor(today);
+function weekBlockHtml(wk, today, thisWeek, anyMeals) {
   const week = state.weeks[wk] || {};
   const mix = E.weekMix(state, wk);
   const floor = state.settings.minStandardPlus;
   const stdPlus = mix.standard + mix.project;
-  const anyMeals = Object.keys(state.meals).length > 0;
-
   const mixParts = E.EFFORTS.filter((t) => mix[t] > 0)
     .map((t) => `${mix[t]} ${E.EFFORT_LABELS[t].toLowerCase()}`)
     .join(" · ");
   const floorNote = floor
     ? `<span class="${stdPlus >= floor ? "floor-ok" : "floor-warn"}">floor ${stdPlus}/${floor} standard+</span>`
     : "";
-
-  const cookLabel = { null: "anyone", greg: "Greg", angie: "Angie", together: "together" }[filters.cook];
+  const label =
+    wk === thisWeek ? "This week"
+    : wk === E.addDays(thisWeek, 7) ? "Next week"
+    : "Week of";
+  const clearable = E.DAYS.some((d) => week[d]?.mealId && !week[d].resolved);
 
   let html = `
-    <div class="week-head">
-      <h2>${fmtShort(wk)} &ndash; ${fmtShort(E.addDays(wk, 6))}${wk === thisWeek ? " &middot; this week" : ""}</h2>
-      <div class="week-nav">
-        <button data-act="wk-prev">&lsaquo;</button>
-        ${wk !== thisWeek ? '<button data-act="wk-today">today</button>' : ""}
-        <button data-act="wk-next">&rsaquo;</button>
+    <div class="week-block">
+      <div class="block-head">
+        <h3>${label}</h3>
+        <span class="range">${fmtShort(wk)} &ndash; ${fmtShort(E.addDays(wk, 6))}</span>
+        ${clearable ? `<button class="chip" data-act="clear-week" data-wk="${wk}">clear</button>` : ""}
+        ${anyMeals ? `<button class="fill-btn" data-act="fill" data-wk="${wk}">Fill empty days</button>` : ""}
       </div>
-    </div>
-    <div class="mix-line">${mixParts || "nothing planned yet"}${floorNote ? " &nbsp;" + floorNote : ""}</div>
-    <div class="filter-row">
-      <button class="chip ${filters.maxQuick ? "on" : ""}" data-act="f-quick">&le;30 min</button>
-      <button class="chip ${filters.cook ? "on" : ""}" data-act="f-cook">cook: ${cookLabel}</button>
-      ${anyMeals ? '<button class="fill-btn" data-act="fill">Fill empty days</button>' : ""}
-    </div>
-    <div class="rail">`;
+      <div class="mix-line">${mixParts || "nothing planned yet"}${floorNote ? " &nbsp;" + floorNote : ""}</div>
+      <div class="rail">`;
 
   for (const day of E.DAYS) {
     const date = E.dateForDay(wk, day);
@@ -249,9 +241,9 @@ function renderWeek() {
           <div class="meal-sub"><span class="tier">${E.EFFORT_LABELS[meal.effort]}</span>
             &nbsp;${esc(meal.protein)}${meal.cook !== "either" ? ` · ${esc(meal.cook)}` : ""}</div>
           <div class="t-actions">
-            <button data-act="suggest" data-day="${day}">shuffle</button>
-            ${canCook ? `<button class="cook" data-act="cooked" data-day="${day}">cooked</button>` : ""}
-            <button data-act="clear" data-day="${day}">&times;</button>
+            <button data-act="suggest" data-day="${day}" data-wk="${wk}">shuffle</button>
+            ${canCook ? `<button class="cook" data-act="cooked" data-day="${day}" data-wk="${wk}">cooked</button>` : ""}
+            <button data-act="clear" data-day="${day}" data-wk="${wk}">&times;</button>
           </div>
         </div>`;
     } else {
@@ -260,14 +252,39 @@ function renderWeek() {
           <div class="day-line"><span class="dow">${day}</span><span>${fmtShort(date)}</span></div>
           <div class="t-actions">
             ${anyMeals
-              ? `<button class="primary" data-act="suggest" data-day="${day}">suggest</button>
-                 <button data-act="pick" data-day="${day}">pick</button>`
+              ? `<button class="primary" data-act="suggest" data-day="${day}" data-wk="${wk}">suggest</button>
+                 <button data-act="pick" data-day="${day}" data-wk="${wk}">pick</button>`
               : `<span style="font-family:var(--mono);font-size:.68rem;">no meals yet</span>`}
           </div>
         </div>`;
     }
   }
-  html += "</div>";
+  html += "</div></div>";
+  return html;
+}
+
+function renderWeek() {
+  const today = todayStr();
+  const thisWeek = E.weekKeyFor(today);
+  const weeksShown = [viewWeek, E.addDays(viewWeek, 7)];
+  const anyMeals = Object.keys(state.meals).length > 0;
+  const cookLabel = { null: "anyone", greg: "Greg", angie: "Angie", together: "together" }[filters.cook];
+
+  let html = `
+    <div class="week-head">
+      <h2>${fmtShort(weeksShown[0])} &ndash; ${fmtShort(E.addDays(weeksShown[1], 6))}</h2>
+      <div class="week-nav">
+        <button data-act="wk-prev">&lsaquo;</button>
+        ${viewWeek !== thisWeek ? '<button data-act="wk-today">today</button>' : ""}
+        <button data-act="wk-next">&rsaquo;</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <button class="chip ${filters.maxQuick ? "on" : ""}" data-act="f-quick">&le;30 min</button>
+      <button class="chip ${filters.cook ? "on" : ""}" data-act="f-cook">cook: ${cookLabel}</button>
+    </div>`;
+
+  for (const wk of weeksShown) html += weekBlockHtml(wk, today, thisWeek, anyMeals);
 
   if (!anyMeals) {
     html += `
@@ -287,6 +304,7 @@ $("#tab-week").addEventListener("click", (e) => {
   if (!btn) return;
   const act = btn.dataset.act;
   const day = btn.dataset.day;
+  const wk = btn.dataset.wk || viewWeek;
   const today = todayStr();
 
   if (act === "wk-prev") { viewWeek = E.addDays(viewWeek, -7); render(); }
@@ -299,28 +317,33 @@ $("#tab-week").addEventListener("click", (e) => {
     render();
   }
   if (act === "fill") {
-    const before = E.plannedMealIds(state, viewWeek).size;
-    const next = E.fillWeek(state, viewWeek, today, filters, Math.random, whoami, Date.now());
-    const after = E.plannedMealIds(next, viewWeek).size;
+    const before = E.plannedMealIds(state, wk).size;
+    const next = E.fillWeek(state, wk, today, filters, Math.random, whoami, Date.now());
+    const after = E.plannedMealIds(next, wk).size;
     if (after === before) toast("Nothing fit — check filters or the no-repeat window");
     commit(next);
     const floor = next.settings.minStandardPlus;
-    if (floor && E.standardPlusCount(next, viewWeek) < floor) {
+    if (floor && E.standardPlusCount(next, wk) < floor) {
       toast(`Mix floor not met — not enough standard+ meals available`);
     }
   }
-  if (act === "suggest") {
-    const meal = E.suggestFor(state, viewWeek, today, filters, Math.random);
-    if (!meal) { toast("No candidates — check filters or the no-repeat window"); return; }
-    commit(E.planDay(state, viewWeek, day, meal.id, whoami, Date.now()));
+  if (act === "clear-week") {
+    if (confirm("Clear this week's plan? Days already marked cooked or skipped stay.")) {
+      commit(E.clearWeek(state, wk, Date.now()));
+    }
   }
-  if (act === "pick") openPicker(day);
-  if (act === "clear") commit(E.clearDay(state, viewWeek, day, Date.now()));
-  if (act === "cooked") commit(E.stampCooked(state, viewWeek, day, today, Date.now()));
+  if (act === "suggest") {
+    const meal = E.suggestFor(state, wk, today, filters, Math.random);
+    if (!meal) { toast("No candidates — check filters or the no-repeat window"); return; }
+    commit(E.planDay(state, wk, day, meal.id, whoami, Date.now()));
+  }
+  if (act === "pick") openPicker(wk, day);
+  if (act === "clear") commit(E.clearDay(state, wk, day, Date.now()));
+  if (act === "cooked") commit(E.stampCooked(state, wk, day, today, Date.now()));
 });
 
 // meal picker sheet
-function openPicker(day) {
+function openPicker(wk, day) {
   const meals = E.activeMeals(state).sort((a, b) => a.name.localeCompare(b.name));
   const rows = meals.map((m) => `
     <div class="recon-row">
@@ -339,7 +362,7 @@ function openPicker(day) {
   $("#overlay .sheet").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-pick]");
     if (!b) return;
-    commit(E.planDay(state, viewWeek, day, b.dataset.pick, whoami, Date.now()));
+    commit(E.planDay(state, wk, day, b.dataset.pick, whoami, Date.now()));
     closeOverlay();
   });
 }
@@ -758,7 +781,7 @@ function renderSettings() {
       <div class="row"><button class="btn-danger" id="dataImportBtn">Import (replace)</button></div>
     </div>
 
-    <div class="mono-note">dinner planner v1.1 &mdash; built 2026-08-19</div>`;
+    <div class="mono-note">dinner planner v1.2 &mdash; two-week rail</div>`;
 
   $("#whoSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-who]");

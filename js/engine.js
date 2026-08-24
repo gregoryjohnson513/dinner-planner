@@ -115,11 +115,32 @@ function eatenTooRecently(meal, todayStr, noRepeatWeeks) {
 
 // filters: { maxQuick: bool ("<=30 min" -> nocook|quick only), cook: "greg"|"angie"|"together"|null,
 //            efforts: [tier,...]|null (restrict to these tiers) }
+// Meals on still-open (unresolved) day slots — the plans that are "spoken for".
+export function unresolvedPlannedIds(state, weekKey) {
+  const week = state.weeks[weekKey] || {};
+  const ids = new Set();
+  for (const day of DAYS) {
+    const slot = week[day];
+    if (slot && slot.mealId && !slot.resolved) ids.add(slot.mealId);
+  }
+  return ids;
+}
+
+// Dedupe horizon: never twice in the same week; when no-repeat is on, meals
+// still SPOKEN FOR in an adjacent week are excluded too, so a two-week plan
+// doesn't repeat across its boundary. Resolved slots don't block: a skipped
+// night releases its meal, and a cooked night is already handled by the
+// eaten-recency rule.
 export function candidateMeals(state, weekKey, todayStr, filters = {}) {
-  const inWeek = plannedMealIds(state, weekKey);
   const noRepeat = state.settings.noRepeatWeeks;
+  const excluded = new Set(plannedMealIds(state, weekKey));
+  if (noRepeat >= 1) {
+    for (const adjacent of [addDays(weekKey, -7), addDays(weekKey, 7)]) {
+      for (const id of unresolvedPlannedIds(state, adjacent)) excluded.add(id);
+    }
+  }
   return activeMeals(state).filter((m) => {
-    if (inWeek.has(m.id)) return false;
+    if (excluded.has(m.id)) return false;
     if (eatenTooRecently(m, todayStr, noRepeat)) return false;
     if (filters.maxQuick && m.effort !== "nocook" && m.effort !== "quick") return false;
     if (filters.cook && m.cook !== filters.cook && m.cook !== "either") return false;
@@ -164,6 +185,25 @@ export function clearDay(state, weekKey, dayName, now) {
   // Keep a stamped empty slot (not undefined) so the clear wins a sync merge.
   week[dayName] = { mealId: null, by: null, resolved: false, updatedAt: now };
   return { ...state, weeks: { ...state.weeks, [weekKey]: week } };
+}
+
+// Clears every planned-but-unresolved day in one shot ("start over").
+// Resolved days (cooked/skipped) stay — they're the week's record, and their
+// recency stamps already live on the meals. Cleared slots carry a fresh
+// updatedAt so the clear wins the sync merge on the other phone.
+export function clearWeek(state, weekKey, now) {
+  const week = state.weeks[weekKey] || {};
+  const cleared = { ...week };
+  let changed = false;
+  for (const day of DAYS) {
+    const slot = week[day];
+    if (slot && slot.mealId && !slot.resolved) {
+      cleared[day] = { mealId: null, by: null, resolved: false, updatedAt: now };
+      changed = true;
+    }
+  }
+  if (!changed) return state;
+  return { ...state, weeks: { ...state.weeks, [weekKey]: cleared } };
 }
 
 // ---------- fill empty days + mix floor ----------
